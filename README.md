@@ -12,7 +12,7 @@ originally proposed in:
 
 **Maximum Entropy Snapshot Sampling (MESS)** is a method for selecting representative system states (snapshots) from structured data sequences. While originally developed for reduced basis model generation, the method is **general-purpose** and can be applied as a **preprocessing technique** to any application involving data sequences — including time-series or simulation data.
 
-The method works by projecting the data into a reduced space and selecting snapshots that **maximize the $$\varepsilon$$-Frobenius entropy** of their distribution. This leads to a compact, diverse, and information-rich subset of the original data.
+The method works by projecting the data into a reduced space and selecting snapshots that **maximize the $\varepsilon$-Frobenius entropy** of their distribution. This leads to a compact, diverse, and information-rich subset of the original data.
 
 
 ## MESS is particularly useful when:
