@@ -1,42 +1,48 @@
 # Maximum Entropy Snapshot Sampling
 
-This repository provides a Python implementation of the Maximum Entropy Snapshot Sampling (MESS) described in:
+This repository provides a Python implementation of **Maximum Entropy Snapshot Sampling**,  
+originally proposed in:
 
-Kasolis, F., & Clemens, M. (2020). *Maximum Entropy Snapshot Sampling for Reduced Basis Generation*.  
-[arXiv:2005.01280  [Titel anhand dieser ArXiv-ID in Citavi-Projekt übernehmen] ](https://arxiv.org/abs/2005.01280)
+> F. Kasolis and M. Clemens,  
+> *Maximum Entropy Snapshot Sampling for Reduced Basis Generation*,  
+> arXiv:2005.01280, 2020. 
+> [https://arxiv.org/abs/2005.01280](https://arxiv.org/abs/2005.01280)
 
 ## Overview
 
-Maximum Entropy Snapshot Sampling (MESS) is a method for selecting representative system states (snapshots) from structured data sequences. Originally developed for reduced basis model generation, the method is **general-purpose** and can be applied as a **preprocessing technique** to any kind of data series.
+**Maximum Entropy Snapshot Sampling (MESS)** is a method for selecting representative system states (snapshots) from structured data sequences. While originally developed for reduced basis model generation, the method is **general-purpose** and can be applied as a **preprocessing technique** to any application involving data sequences — including time-series or simulation data.
 
-It is particularly useful in scenarios where:
+The method works by projecting the data into a reduced space and selecting snapshots that **maximize the $$\varepsilon$$-Frobenius entropy** of their distribution. This leads to a compact, diverse, and information-rich subset of the original data.
 
-- The dataset is large and potentially redundant
-- Only a limited number of samples can be stored, processed, or used for training
-- The goal is to retain maximum information with minimal sampling effort
 
-MESS selects snapshots by maximizing the Shannon entropy of the projected states in a reduced space. This results in a compact, diverse, and information-rich subset of the original data.
+## MESS is particularly useful when:
+
+- The dataset is large and contains redundancy  
+- Only a limited number of samples can be stored or processed  
+- Maximum information must be preserved with minimal samples
+
 
 ## Features
 
-- Maximum entropy-based snapshot selection
-- **State-Recurrence Analysis** (default):
-  - Filters out redundant or frequently recurring states
-- **Energy Variation Analysis** (optional):
-  - Prioritizes high-change or high-energy transitions
-- Modular design allows use as a preprocessing step before:
-  - Model reduction (e.g., POD, reduced basis)
-  - Machine learning model training
-  - Surrogate modeling
-  - Data compression
+- Snapshot selection based on **state-recurrence analysis**  
+  (identifies and filters redundant or frequently recurring system states)
+
+- Optional [**energy-variation analysis**](https://iopscience.iop.org/article/10.1088/1742-6596/2090/1/012086)  
+  (prioritizes high-change or high-energy transitions for enhanced diversity)
+
+- Modular design enables integration into:
+  - Model order reduction (e.g., POD, reduced basis methods)  
+  - Machine learning pipelines  
+  - Surrogate modeling  
+  - Data compression  
   - Clustering or segmentation
 
 ## Typical Use Cases
 
-- Parametric or time-dependent simulations (e.g., CFD, structural mechanics)
-- Sensor data and time-series
-- High-dimensional simulation trajectories
-- Video frame selection and motion summarization
-- Latent state analysis in autoencoders or other ML models
+- Parametric or time-dependent simulations (e.g., CFD, structural mechanics)  
+- Sensor data and time-series  
 
-## Repository Structure
+
+
+
+
