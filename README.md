@@ -1,6 +1,6 @@
 # Maximum Entropy Snapshot Sampling
 
-This repository provides a Python implementation of the method described in:
+This repository provides a Python implementation of the Maximum Entropy Snapshot Sampling (MESS) described in:
 
 Kasolis, F., & Clemens, M. (2020). *Maximum Entropy Snapshot Sampling for Reduced Basis Generation*.  
 [arXiv:2005.01280  [Titel anhand dieser ArXiv-ID in Citavi-Projekt übernehmen] ](https://arxiv.org/abs/2005.01280)
