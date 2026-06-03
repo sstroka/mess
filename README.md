@@ -1,4 +1,5 @@
 # Maximum Entropy Snapshot Sampling (MESS & AdaMESS)
+[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.17101989.svg)](https://doi.org/10.5281/zenodo.17101989)
 
 This repository provides a Python implementation of **Maximum Entropy Snapshot
 Sampling (MESS)** and its adaptive extension **AdaMESS** for memory-efficient
