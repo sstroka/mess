@@ -5,11 +5,11 @@ build-backend = "hatchling.build"
 [project]
 name = "mess"
 version = "0.1.0"
-description = "A brief description of your project"
+description = "MESS & AdaMESS: Maximum Entropy Snapshot Sampling for memory-efficient reduced-basis generation"
 readme = "README.md"
 license = {text = "MIT"}
 authors = [{name = "Steven Stroka", email = "stroka@uni-wuppertal.de"}]
-keywords = ["example", "scientific computing", "data processing"]
+keywords = ["model order reduction", "reduced basis", "snapshot sampling", "POD", "scientific computing", "electromagnetics"]
 classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: Developers",
@@ -27,7 +27,8 @@ requires-python = ">=3.11"
 dependencies = [
     "matplotlib",
     "numpy",
-    "scipy"
+    "scipy",
+    "h5py"
 ]
 
 [tool.hatch.build.targets.wheel]
