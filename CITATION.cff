@@ -1,0 +1,30 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite it as below, together with the original MESS paper."
+title: "MESS & AdaMESS: Maximum Entropy Snapshot Sampling for Memory Efficient Reduced-Basis Generation"
+type: software
+authors:
+  - family-names: Stroka
+    given-names: Steven
+    affiliation: "Chair of Electromagnetic Theory (TET), University of Wuppertal"
+version: 0.2.0
+doi: 10.5281/zenodo.17101989
+license: MIT
+keywords:
+  - model order reduction
+  - reduced basis
+  - snapshot sampling
+  - POD
+references:
+  - type: article
+    title: "Maximum Entropy Snapshot Sampling for Reduced Basis Generation"
+    authors:
+      - family-names: Kasolis
+        given-names: Fotios
+      - family-names: Clemens
+        given-names: Markus
+    year: 2020
+    journal: "arXiv preprint"
+    identifiers:
+      - type: other
+        value: "arXiv:2005.01280"
+    url: "https://arxiv.org/abs/2005.01280"

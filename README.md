@@ -1,51 +1,19 @@
-# Maximum Entropy Snapshot Sampling
+# MESS & AdaMESS — Maximum Entropy Snapshot Sampling
+
 [![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.17101989.svg)](https://doi.org/10.5281/zenodo.17101989)
+[![tests](https://github.com/<your-org>/mess/actions/workflows/tests.yml/badge.svg)](https://github.com/<your-org>/mess/actions/workflows/tests.yml)
+![python](https://img.shields.io/badge/python-3.11%20%7C%203.12%20%7C%203.13%20%7C%203.14-blue)
+[![license](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 
-This repository provides a Python implementation of **Maximum Entropy Snapshot
-Sampling (MESS)** and its adaptive extension **AdaMESS** for memory-efficient
-reduced-basis generation.
+A Python implementation of **Maximum Entropy Snapshot Sampling (MESS)** and its
+adaptive extension **AdaMESS** for memory-efficient reduced-basis generation.
 
-MESS was originally proposed in:
-
-> F. Kasolis and M. Clemens,
-> *Maximum Entropy Snapshot Sampling for Reduced Basis Generation*,
-> arXiv:2005.01280, 2020.
-> [https://arxiv.org/abs/2005.01280](https://arxiv.org/abs/2005.01280)
-
-The adaptive variant **AdaMESS** is introduced in:
-
-> S. Stroka, *et al.*,
-> *Adaptive Maximum Entropy Snapshot Sampling for Memory Efficient
-> Reduced-Basis Generation*, IEEE CEFC 2026.
-
----
-
-## Overview
-
-**MESS** selects representative system states (snapshots) from structured data
-sequences by greedily maximizing the $\varepsilon$-Frobenius entropy of their
-distribution. While originally developed for reduced-basis model generation, the
-method is **general-purpose** and works as a **preprocessing technique** for any
-application involving data sequences — time-series, simulation trajectories, or
-images.
-
-**AdaMESS** turns MESS from a *filter on an existing sequence* into an *adaptive
-generator*. Instead of sampling a pre-computed dense data matrix, it decides
-**where along a parameter axis the next expensive full-order snapshot should be
-computed**. This avoids ever materializing the dense uniform sequence — the key
-to its memory savings.
-
-The method walks a 1-D parameter range and keeps a sliding window of recent
-snapshots. From that window it forms
-
-- a **recurrence / MESS keep-ratio** (how redundant is the local data?), and
-- a **gradient brake** $\|P_{i+1}-P_i\|$
-  (how fast does the solution change?),
-
-and combines them into a **symmetric step-size controller**: a single keep-ratio
-exponent shrinks the step where the data is too diverse and grows it where the
-data is redundant. A POD basis is then built directly from the sampled
-snapshots.
+- **MESS** picks a compact, information-rich subset of columns from a data
+  sequence (time series, simulation trajectory, image, …) by greedily
+  maximizing the ε-Frobenius entropy. Recurring states are dropped.
+- **AdaMESS** turns MESS into an *adaptive generator*: it decides where along a
+  parameter axis the next expensive full-order solve should happen, so the
+  dense uniform sweep never has to be computed.
 
 ---
 
@@ -54,28 +22,53 @@ snapshots.
 ```bash
 git clone https://github.com/<your-org>/mess.git
 cd mess
-pip install -e .
+pip install -e .            # core: numpy + scipy
+pip install -e ".[io]"      # + h5py for SamplingResult.save/load
+pip install -e ".[dev]"     # + everything for tests, examples and notebooks
 ```
 
-Requires Python >= 3.11 and `numpy`, `scipy`, `matplotlib` (plus `h5py` for the
-`SamplingResult.save/load` helpers).
+Requires Python ≥ 3.11.
 
 ---
 
 ## Quick start
 
-### MESS (filter an existing sequence)
+### MESS — filter an existing sequence
 
 ```python
 import numpy as np
 from mess import MESS
 
-data = np.random.rand(100, 500)          # (n_features, n_snapshots)
+data = np.random.rand(500, 2000)       # (n_features, n_snapshots)
 mess = MESS(data)
-reduced = mess.sampling(eps=0.2)         # information-rich subset
+
+reduced = mess.sampling()              # eps chosen automatically
+mess.eps_, mess.indices_               # threshold used, selected column indices
 ```
 
-### AdaMESS (adaptive snapshot generation)
+### Choosing `eps`
+
+The recurrence threshold `eps` is the only parameter of MESS. Distances are
+normalized by the *largest* distance, so an absolute value does not carry over
+between data sets, and `'state'` and `'energy'` analysis need thresholds that
+differ by orders of magnitude. `sampling()` therefore accepts **one** of:
+
+| Call                              | Meaning                                                              |
+|-----------------------------------|----------------------------------------------------------------------|
+| `mess.sampling()`                 | **automatic**: knee of the curve "kept snapshots vs. eps" (default)  |
+| `mess.sampling(eps=0.05)`         | absolute threshold on the normalized distances (classic behaviour)   |
+| `mess.sampling(quantile=0.02)`    | eps = 2 % quantile of all pairwise distances, scale-free             |
+| `mess.sampling(n_samples=100)`    | eps chosen so that ~100 snapshots are kept (budget)                  |
+| `mess.sampling(keep_ratio=0.1)`   | eps chosen so that ~10 % of the snapshots are kept                   |
+| `mess.sampling(tol=1e-3)`         | largest eps whose selection reproduces the data to rel. error ≤ 1e-3 |
+
+`mess.eps_sweep()` returns the whole curve (eps, quantile, number kept, knee)
+for plotting. See [`examples/01_choosing_eps.py`](examples/01_choosing_eps.py).
+
+> **Tip:** On noisy data the automatic mode can be generous, because noise
+> makes many states look new. `tol=...` or `n_samples=...` give tighter control.
+
+### AdaMESS — adaptive snapshot generation
 
 ```python
 from mess import AdaMESS, build_pod_basis
@@ -84,55 +77,67 @@ def solve(s):
     # compute and return the full-order solution vector at parameter s
     return phi
 
-ada  = AdaMESS(solve, start=S0, end=S1, target_keep=0.85, beta_grad=1.0)
-res  = ada.run()                                # adaptive snapshot generation
+ada = AdaMESS(solve, start=S0, end=S1, target_keep=0.85, beta_grad=1.0)
+res = ada.run()                                 # adaptive snapshot generation
 V, sigma = build_pod_basis(res.snapshots)       # POD basis from the samples
+res.save("run.h5")                              # needs the [io] extra
 ```
 
 **Key knobs**
 
-| Parameter            | Symbol   | Role                       | Effect                                   |
-|----------------------|----------|----------------------------|------------------------------------------|
-| `target_keep`        | $\zeta$  | MESS keep ratio            | lower ⇒ fewer snapshots, more aggressive |
-| `beta_keep`          |          | keep-ratio exponent        | higher ⇒ stronger reaction to redundancy |
-| `beta_grad`          | $\beta$  | gradient-brake strength    | higher ⇒ stronger slow-down at fast changes |
-| `chunk_size`         |          | sliding-window length      | larger ⇒ smoother, laggier adaptation    |
-| `step_min`/`step_max`|          | step bounds                | safety rails (default 0.2 % / 5 % of span) |
+| Parameter              | Symbol  | Role                         | Effect                                        |
+|------------------------|---------|------------------------------|-----------------------------------------------|
+| `target_keep`          | $\zeta$ | target MESS keep ratio       | higher ⇒ larger steps, fewer solves           |
+| `beta_keep`            |         | keep-ratio exponent          | higher ⇒ stronger reaction to redundancy      |
+| `beta_grad`            | $\beta$ | gradient-brake strength      | higher ⇒ stronger slow-down at fast changes   |
+| `chunk_size`           |         | sliding-window length        | larger ⇒ smoother, laggier adaptation         |
+| `step_min`/`step_max`  |         | step bounds                  | safety rails (default 0.2 % / 5 % of span)    |
+| `epsilon_percentile`   |         | recurrence threshold         | percentile of window distances (scale-free)   |
+
+Complex-valued solutions (e.g. time-harmonic fields) are supported.
 
 ---
 
-## Notebooks
+## Examples and notebooks
 
-| Notebook | Topic |
-|----------|-------|
-| `notebooks/tutorial_1.ipynb`         | MESS for data compression (image example) |
-| `notebooks/tutorial_2.ipynb`         | MESS state vs. energy analysis |
-| `notebooks/tutorial_3_adamess.ipynb` | **AdaMESS** end-to-end: adaptive sampling, POD basis, benchmark |
+| File | Topic |
+|------|-------|
+| [`examples/01_choosing_eps.py`](examples/01_choosing_eps.py) | all eps modes compared, `eps_sweep` curve |
+| [`examples/02_burgers_snapshots.py`](examples/02_burgers_snapshots.py) | MESS before POD on a Burgers shock trajectory vs. uniform/random subsampling |
+| [`examples/03_rare_events_time_series.py`](examples/03_rare_events_time_series.py) | sensor time series: MESS keeps a rare fault that uniform sampling misses |
+| [`examples/04_adamess_moving_coil.py`](examples/04_adamess_moving_coil.py) | AdaMESS for a coil passing over an observation region, with diagnostics |
+| [`notebooks/tutorial_1.ipynb`](notebooks/tutorial_1.ipynb) | MESS for image compression (state analysis) |
+| [`notebooks/tutorial_2.ipynb`](notebooks/tutorial_2.ipynb) | MESS with energy analysis |
+| [`notebooks/tutorial_3_adamess.ipynb`](notebooks/tutorial_3_adamess.ipynb) | AdaMESS end-to-end: adaptive sampling, POD basis, benchmark |
 
-The AdaMESS tutorial is fully self-contained — it uses a cheap synthetic field
-solver so it runs anywhere. Replace `solve(s)` with your own full-order solver
-to apply it to a real problem.
+The examples write their figures to `examples/output/`:
+
+```bash
+pip install -e ".[examples]"
+python examples/02_burgers_snapshots.py
+```
 
 ---
 
-## Features
+## Development
 
-- **MESS** snapshot selection via state-recurrence analysis (identifies and
-  filters redundant or frequently recurring states).
-- Optional **energy-variation analysis** (prioritizes high-change transitions).
-- **AdaMESS** adaptive snapshot generation with symmetric step control
-  (keep-ratio + gradient brake); solver-agnostic via a user-supplied
-  `solve(s)` callable.
-- Adaptive snapshot generation followed by a POD basis built directly from the
-  samples.
-- `SamplingResult` container with HDF5 save/load.
+```bash
+pip install -e ".[dev]"
+pytest                 # unit tests + doctests
+ruff check .           # lint
+```
+
+CI runs the test suite on Python 3.11–3.14 (see `.github/workflows/tests.yml`).
+Changes are listed in [`CHANGELOG.md`](CHANGELOG.md).
+
+---
 
 ## Typical use cases
 
 - Parametric or time-dependent simulations (CFD, structural mechanics,
   electromagnetics)
 - Low-frequency human-exposure dosimetry and reduced-order modelling
-- Sensor data and time-series
+- Sensor data and time series
 - Surrogate modelling, data compression, clustering / segmentation
 
 ---
@@ -144,19 +149,15 @@ to apply it to a real problem.
 | **Steven Stroka** | Lead author, AdaMESS implementation, maintainer | Chair of Electromagnetic Theory (TET), University of Wuppertal |
 | *Fotios Kasolis* | Original MESS method | — |
 | *Markus Clemens* | Original MESS method, supervision | Chair of Electromagnetic Theory (TET), University of Wuppertal |
-| *<add contributor>* | *<role>* | *<affiliation>* |
 
-> _Please update this table with the actual contributors and roles before
-> publishing the repository._
+<!-- TODO: add further contributors before publishing -->
 
 ---
 
 ## Citation
 
-If you use this software, please cite both the original MESS paper and the
-AdaMESS paper, and the software archive.
-
-### Original MESS method
+If you use this software, please cite the original MESS paper, the AdaMESS
+paper and the software archive (see also [`CITATION.cff`](CITATION.cff)).
 
 ```bibtex
 @article{kasolis2020mess,
@@ -166,11 +167,7 @@ AdaMESS paper, and the software archive.
   year    = {2020},
   url     = {https://arxiv.org/abs/2005.01280}
 }
-```
 
-### AdaMESS
-
-```bibtex
 @inproceedings{stroka2026adamess,
   title     = {Adaptive Maximum Entropy Snapshot Sampling for Memory Efficient
                Reduced-Basis Generation},
@@ -179,30 +176,19 @@ AdaMESS paper, and the software archive.
   year      = {2026},
   address   = {Thessaloniki, Greece}
 }
-```
 
-### Software (Zenodo)
-
-```bibtex
 @software{mess_software,
-  author    = {Stroka, Steven and <contributors>},
+  author    = {Stroka, Steven},
   title     = {{MESS \& AdaMESS}: Maximum Entropy Snapshot Sampling for
                Memory Efficient Reduced-Basis Generation},
   year      = {2026},
   publisher = {Zenodo},
-  version   = {0.1.0},
-  doi       = {10.5281/zenodo.XXXXXXX},
-  url       = {https://doi.org/10.5281/zenodo.XXXXXXX}
+  doi       = {10.5281/zenodo.17101989},
+  url       = {https://doi.org/10.5281/zenodo.17101989}
 }
 ```
 
-[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.17101989.svg)](https://doi.org/10.5281/zenodo.17101989)
-
-
-
----
-
-## Related work
+### Related work
 
 - M. W. F. M. Bannenberg, F. Kasolis, M. Günther, M. Clemens,
   *Maximum entropy snapshot sampling for reduced basis modelling*,
@@ -215,4 +201,4 @@ AdaMESS paper, and the software archive.
 ## License
 
 Released under the MIT License. Copyright (c) 2025 Steven Stroka. See
-[`LICENSE`](LICENSE) for details.
+[`LICENSE`](LICENSE).
