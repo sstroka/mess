@@ -210,7 +210,10 @@ class AdaMESS:
     start, end : float
         Parameter range to traverse (``end > start``).
     target_keep : float, default 0.85
-        Target MESS keep ratio (``zeta`` in the paper), in ``(0, 1]``.
+        Target MESS keep ratio (``zeta`` in the paper), in ``(0, 1]``. The
+        step is scaled by ``(target_keep / keep_ratio) ** beta_keep``, so a
+        *higher* value lets the step grow sooner => fewer solves; a lower
+        value samples more finely.
     beta_keep : float, default 4.0
         Keep-ratio exponent. Reacts symmetrically: shrink when too diverse,
         grow when too redundant.
