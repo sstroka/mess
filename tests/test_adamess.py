@@ -158,3 +158,12 @@ def test_save_load_roundtrip(result, tmp_path):
     assert len(loaded.diagnostics) == len(result.diagnostics)
     assert loaded.diagnostics[3]["keep_ratio"] == pytest.approx(
         result.diagnostics[3]["keep_ratio"])
+
+
+@pytest.mark.parametrize("abs_diffs", [True, False])
+def test_complex_solver(abs_diffs):
+    real = moving_pulse(start=START, end=END)
+    res = AdaMESS(lambda s: real(s) * np.exp(1j * s / 100.0), START, END,
+                  abs_diffs=abs_diffs).run()
+    assert np.iscomplexobj(res.snapshots)
+    assert res.positions[-1] == END

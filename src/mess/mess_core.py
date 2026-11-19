@@ -65,6 +65,12 @@ def _knee_index(x: np.ndarray, y: np.ndarray) -> int:
     return int(np.argmax((1.0 - xn) - yn))
 
 
+def _as_inexact(a: np.ndarray) -> np.ndarray:
+    """Float (or complex) view of ``a``; integer input is converted to float64."""
+    a = np.asarray(a)
+    return a if np.issubdtype(a.dtype, np.inexact) else a.astype(float)
+
+
 def _projection_error(sequence: np.ndarray, basis_columns: np.ndarray) -> float:
     """Relative Frobenius error of projecting ``sequence`` onto
     ``span(basis_columns)``."""
@@ -75,7 +81,7 @@ def _projection_error(sequence: np.ndarray, basis_columns: np.ndarray) -> float:
     if s.size == 0 or s[0] == 0:
         return 1.0
     U = U[:, s > s[0] * max(basis_columns.shape) * np.finfo(float).eps]
-    residual = sequence - U @ (U.T @ sequence)
+    residual = sequence - U @ (U.conj().T @ sequence)
     return float(np.linalg.norm(residual) / norm)
 
 
@@ -154,7 +160,8 @@ class MESS:
         else:
             # scalar transition energy per step, then |e_i - e_j| for all pairs
             # (1-D, so the exact pairwise difference is cheap)
-            energies = np.linalg.norm(np.diff(sequence.astype(float), axis=1), axis=0) ** 2
+            # (cast first: np.diff on unsigned ints, e.g. uint8 images, wraps around)
+            energies = np.linalg.norm(np.diff(_as_inexact(sequence), axis=1), axis=0) ** 2
             self.state_matrix = normalized_distance_matrix(energies[None, :], method="pdist")
 
         n = self.state_matrix.shape[0]
@@ -231,7 +238,7 @@ class MESS:
     def _eps_for_tol(self, tol: float) -> float:
         """Largest threshold whose selection keeps the projection error <= tol."""
         cand = self._candidates()
-        seq = np.asarray(self.sequence, dtype=float)
+        seq = _as_inexact(self.sequence)
 
         def ok(eps: float) -> bool:
             idx = self._to_sequence_mask(self._mask_for(eps))

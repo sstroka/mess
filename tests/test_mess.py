@@ -154,3 +154,24 @@ def test_eps_sweep_custom_quantiles(random_walk):
 def test_invalid_eps_arguments(random_walk, kwargs):
     with pytest.raises(ValueError):
         MESS(random_walk).sampling(**kwargs)
+
+
+# ------------------------------------------------------------- dtypes
+def test_uint8_energy_matches_float(rng):
+    """np.diff on uint8 wraps around; the energy analysis must not."""
+    img = rng.integers(0, 256, size=(40, 120), dtype=np.uint8)
+    a = MESS(img, analysis_type="energy")
+    b = MESS(img.astype(float), analysis_type="energy")
+    np.testing.assert_allclose(a.state_matrix, b.state_matrix)
+
+
+@pytest.mark.parametrize("analysis_type", ["state", "energy"])
+def test_complex_data_uses_modulus(random_walk, rng, analysis_type):
+    Z = random_walk + 1j * rng.standard_normal(random_walk.shape).cumsum(axis=1)
+    stacked = np.vstack([Z.real, Z.imag])
+    a = MESS(Z, analysis_type=analysis_type)
+    b = MESS(stacked, analysis_type=analysis_type)
+    np.testing.assert_allclose(a.state_matrix, b.state_matrix, atol=1e-12)
+    out = a.sampling(tol=1e-2)
+    assert np.iscomplexobj(out)
+    assert _projection_error(Z, out) <= 1e-2

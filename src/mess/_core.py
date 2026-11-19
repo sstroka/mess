@@ -35,9 +35,14 @@ def normalized_distance_matrix(columns: np.ndarray, method: str = "gram") -> np.
         :func:`scipy.spatial.distance.pdist`. Both agree to ~1e-8 relative.
 
     If all columns are identical the (all-zero) matrix is returned unscaled
-    instead of producing ``NaN``.
+    instead of producing ``NaN``. Complex data is supported (distances use
+    ``|a - b|`` with the complex modulus).
     """
-    columns = np.asarray(columns, dtype=float)
+    columns = np.asarray(columns)
+    if np.iscomplexobj(columns):
+        # |a-b|^2 = |Re(a-b)|^2 + |Im(a-b)|^2  -> stack real and imaginary parts
+        columns = np.vstack([columns.real, columns.imag])
+    columns = columns.astype(float, copy=False)
     if columns.shape[1] < 2:
         return np.zeros((columns.shape[1], columns.shape[1]))
     if method == "gram":
