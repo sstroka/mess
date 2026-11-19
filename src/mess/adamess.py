@@ -22,61 +22,48 @@ F. Kasolis and M. Clemens, "Maximum Entropy Snapshot Sampling for Reduced
 Basis Generation", arXiv:2005.01280, 2020.
 """
 
+from __future__ import annotations
+
+from collections import deque
+from collections.abc import Callable
 from dataclasses import dataclass, field
 
 import numpy as np
-from scipy.spatial.distance import pdist, squareform
+
+from ._core import greedy_mess, normalized_distance_matrix
 
 
 # ---------------------------------------------------------------------------
 # Recurrence / MESS primitives
 # ---------------------------------------------------------------------------
-def recurrence_matrix_from_columns(M, percentile=10.0):
+def recurrence_matrix_from_columns(M, percentile=10.0, use_abs=True):
     """Build the normalized boolean recurrence matrix from an ``(n_dof, n)``
     matrix ``M``.
 
-    1. pairwise euclidean distances of the columns
+    1. pairwise euclidean distances of the columns (of ``|M|`` if ``use_abs``)
     2. normalize by the maximum distance
     3. threshold at the ``percentile``-th percentile of the upper triangle
 
     Returns ``(R, epsilon, rr)``: boolean matrix, threshold, recurrence rate.
     """
+    M = np.asarray(M)
     if M.shape[1] < 2:
         return np.zeros((0, 0), dtype=bool), 0.0, 0.0
 
-    dist_vec = pdist(np.abs(M).T, metric="euclidean")
-    D = squareform(dist_vec)
-    max_val = D.max()
-    if max_val > 0:
-        D /= max_val
-
-    triu = D[np.triu_indices_from(D, k=1)]
-    epsilon = float(np.percentile(triu, percentile))
+    D = normalized_distance_matrix(np.abs(M) if use_abs else M)
+    iu = np.triu_indices_from(D, k=1)
+    epsilon = float(np.percentile(D[iu], percentile))
     R = D < epsilon
-    rr = float(R[np.triu_indices_from(R, k=1)].mean())
+    rr = float(R[iu].mean())
     return R, epsilon, rr
 
 
 def mess_local(recurrence_matrix):
-    """Greedy MESS for the sliding window.
+    """Greedy MESS for the sliding window (alias of the shared core).
 
     Expects an ``(n, n)`` boolean matrix, returns an ``(n,)`` boolean vector.
-    Uses the Welford-style update ``v <- (k^2 v + d) / (k+1)^2``.
     """
-    n = recurrence_matrix.shape[1]
-    idx = np.zeros(n, dtype=bool)
-    if n == 0:
-        return idx
-    idx[0] = True
-    v, k = 1.0, 1
-
-    for cnt in range(n - 1):
-        d = 2 * np.sum(recurrence_matrix[cnt + 1, idx]) + 1
-        if (d - (2 * k + 1) * v) < 0:
-            idx[cnt + 1] = True
-            v = (k * k * v + d) / ((k + 1) ** 2)
-            k += 1
-    return idx
+    return greedy_mess(recurrence_matrix)
 
 
 # ---------------------------------------------------------------------------
@@ -126,7 +113,7 @@ def update_step_symmetric(step, keep_mask, grad_norms,
     smoothing and a clip to ``[step_min, step_max]``.
     """
     keep_mask = np.asarray(keep_mask, dtype=bool)
-    keep_ratio = keep_mask.mean() if keep_mask.size > 0 else 0.0
+    keep_ratio = float(keep_mask.mean()) if keep_mask.size > 0 else 0.0
 
     if keep_ratio < 1e-8:
         factor_keep = 2.0
@@ -162,29 +149,43 @@ class SamplingResult:
     variant: str
     positions: list                   # parameter coordinates of the snapshots
     snapshots: np.ndarray             # (n_dof, N) array
-    step_history: list                # actual step sizes used
+    step_history: list                # spacing to the next snapshot (per snapshot)
     n_fom_solves: int                 # = len(positions)
     diagnostics: list = field(default_factory=list)
 
     def save(self, path):
+        """Write the result to an HDF5 file (requires ``h5py``)."""
         import h5py
         with h5py.File(path, "w") as f:
             f.attrs["variant"] = self.variant
             f.attrs["n_fom_solves"] = self.n_fom_solves
-            f.create_dataset("positions", data=np.asarray(self.positions))
-            f.create_dataset("step_history", data=np.asarray(self.step_history))
+            f.create_dataset("positions", data=np.asarray(self.positions, dtype=float))
+            f.create_dataset("step_history", data=np.asarray(self.step_history, dtype=float))
             f.create_dataset("snapshots", data=self.snapshots)
+            if self.diagnostics:
+                g = f.create_group("diagnostics")
+                for key in self.diagnostics[0]:
+                    g.create_dataset(key, data=np.asarray(
+                        [d.get(key, np.nan) for d in self.diagnostics], dtype=float))
 
     @classmethod
     def load(cls, path):
+        """Read a result written by :meth:`save`."""
         import h5py
         with h5py.File(path, "r") as f:
+            diagnostics = []
+            if "diagnostics" in f:
+                g = f["diagnostics"]
+                cols = {k: g[k][:] for k in g}
+                n = len(next(iter(cols.values()))) if cols else 0
+                diagnostics = [{k: float(v[i]) for k, v in cols.items()} for i in range(n)]
             return cls(
                 variant=str(f.attrs["variant"]),
-                positions=list(f["positions"][:]),
+                positions=[float(p) for p in f["positions"][:]],
                 snapshots=f["snapshots"][:],
-                step_history=list(f["step_history"][:]),
+                step_history=[float(s) for s in f["step_history"][:]],
                 n_fom_solves=int(f.attrs["n_fom_solves"]),
+                diagnostics=diagnostics,
             )
 
 
@@ -207,24 +208,35 @@ class AdaMESS:
         ``solve(s) -> np.ndarray`` returns the full-order solution vector at
         parameter value ``s``. Treated as a black box (any solver/backend).
     start, end : float
-        Parameter range to traverse.
+        Parameter range to traverse (``end > start``).
     target_keep : float, default 0.85
-        Target MESS keep ratio (``zeta`` in the paper). Lower values keep fewer
-        snapshots per window -> more aggressive thinning.
+        Target MESS keep ratio (``zeta`` in the paper), in ``(0, 1]``.
     beta_keep : float, default 4.0
         Keep-ratio exponent. Reacts symmetrically: shrink when too diverse,
         grow when too redundant.
     beta_grad : float, default 1.0
         Strength of the gradient brake (``beta`` in the paper).
     chunk_size : int, default 10
-        Sliding-window length used for the recurrence/MESS analysis.
+        Sliding-window length used for the recurrence/MESS analysis (>= 3).
     step_min, step_max, step_init : float, optional
         Step-size bounds. If not given, derived from the span:
-        0.2 % / 5 % / 0.2 % of ``|end - start|`` respectively.
+        0.2 % / 5 % / 0.2 % of ``end - start`` respectively.
     epsilon_percentile : float, default 10.0
-        Percentile used to set the recurrence threshold.
+        Percentile of the window distances used as recurrence threshold.
+        Being a percentile, it is independent of the scale of the data.
     alpha_smooth : float, default 0.8
         Exponential smoothing of the step update.
+    normalize_gradients : bool, default False
+        Divide the snapshot differences by the actual step sizes before the
+        analysis (true finite-difference gradients instead of raw changes).
+    abs_diffs : bool, default True
+        Take ``|P_{i+1} - P_i|`` element-wise before computing distances (as in
+        the paper). Set ``False`` to keep the sign information.
+    include_end : bool, default True
+        Shorten the final step so that a snapshot is computed exactly at
+        ``end``. (Before v0.2 the range end was generally not sampled.)
+    max_solves : int, optional
+        Hard cap on the number of ``solve`` calls.
 
     Examples
     --------
@@ -236,22 +248,36 @@ class AdaMESS:
     >>> res = ada.run()
     >>> res.snapshots.shape[1] == res.n_fom_solves
     True
+    >>> res.positions[0], res.positions[-1]
+    (-3.0, 3.0)
     """
 
-    def __init__(self, solve, start, end,
-                 target_keep=0.85,
-                 beta_keep=4.0,
-                 beta_grad=1.0,
-                 chunk_size=10,
-                 step_min=None,
-                 step_max=None,
-                 step_init=None,
-                 epsilon_percentile=10.0,
-                 alpha_smooth=0.8,
-                 normalize_gradients=False):
+    def __init__(self, solve: Callable[[float], np.ndarray], start: float, end: float,
+                 target_keep: float = 0.85,
+                 beta_keep: float = 4.0,
+                 beta_grad: float = 1.0,
+                 chunk_size: int = 10,
+                 step_min: float | None = None,
+                 step_max: float | None = None,
+                 step_init: float | None = None,
+                 epsilon_percentile: float = 10.0,
+                 alpha_smooth: float = 0.8,
+                 normalize_gradients: bool = False,
+                 abs_diffs: bool = True,
+                 include_end: bool = True,
+                 max_solves: int | None = None):
         self.solve = solve
         self.start = float(start)
         self.end = float(end)
+        if not self.end > self.start:
+            raise ValueError(f"end ({end}) must be greater than start ({start})")
+        if not 0.0 < target_keep <= 1.0:
+            raise ValueError(f"target_keep must be in (0, 1], got {target_keep}")
+        if int(chunk_size) < 3:
+            raise ValueError(f"chunk_size must be >= 3, got {chunk_size}")
+        if not 0.0 <= epsilon_percentile <= 100.0:
+            raise ValueError(f"epsilon_percentile must be in [0, 100], got {epsilon_percentile}")
+
         self.target_keep = target_keep
         self.beta_keep = beta_keep
         self.beta_grad = beta_grad
@@ -259,11 +285,16 @@ class AdaMESS:
         self.epsilon_percentile = epsilon_percentile
         self.alpha_smooth = alpha_smooth
         self.normalize_gradients = normalize_gradients
+        self.abs_diffs = abs_diffs
+        self.include_end = include_end
+        self.max_solves = max_solves
 
-        span = abs(self.end - self.start)
+        span = self.end - self.start
         self.step_min = step_min if step_min is not None else 0.002 * span
         self.step_max = step_max if step_max is not None else 0.05 * span
-        self.step_init = step_init if step_init is not None else 0.002 * span
+        self.step_init = step_init if step_init is not None else self.step_min
+        if not 0.0 < self.step_min <= self.step_max:
+            raise ValueError("need 0 < step_min <= step_max")
 
     # -- step update used during the streaming loop -------------------------
     def _step_update(self, step, keep_mask, grad_norms):
@@ -279,60 +310,58 @@ class AdaMESS:
             alpha_smooth=self.alpha_smooth,
         )
 
+    def _analyse_window(self, window, recent_steps, step, pos):
+        P = np.column_stack(window)                       # (n_dof, chunk)
+        P_diffs = np.diff(P, axis=1)                      # (n_dof, chunk-1)
+
+        if self.normalize_gradients and recent_steps.size == P_diffs.shape[1]:
+            P_diffs = P_diffs / recent_steps[None, :]
+        grad_norms = np.linalg.norm(P_diffs, axis=0)
+
+        R, eps, rr = recurrence_matrix_from_columns(
+            P_diffs, percentile=self.epsilon_percentile, use_abs=self.abs_diffs
+        )
+        keep_mask = mess_local(R)
+
+        step, diag = self._step_update(step, keep_mask, grad_norms)
+        diag.update({"rr": rr, "epsilon": eps, "pos": pos})
+        return step, diag
+
     # -- adaptive snapshot generation --------------------------------------
-    def run(self, variant_name="AdaMESS"):
+    def run(self, variant_name: str = "AdaMESS") -> SamplingResult:
         """Generate snapshots adaptively over ``[start, end]``."""
         pos = self.start
         positions, snaps_list, step_history, diags = [], [], [], []
         step = self.step_init
-        P_window = None
+        window: deque[np.ndarray] = deque(maxlen=self.chunk_size)
+        # positions closer than this to `end` are snapped onto it
+        snap_tol = 1e-9 * (self.end - self.start)
 
-        while pos < self.end:
+        while True:
             phi = np.asarray(self.solve(pos)).ravel()
             positions.append(pos)
             snaps_list.append(phi)
+            window.append(phi)
 
-            # update sliding window
-            if P_window is None:
-                P_window = phi.reshape(-1, 1)
-            else:
-                P_window = np.column_stack((P_window, phi))
-                if P_window.shape[1] > self.chunk_size:
-                    P_window = P_window[:, 1:]
+            if len(window) == self.chunk_size:
+                recent = np.asarray(step_history[-(self.chunk_size - 1):], dtype=float)
+                step, diag = self._analyse_window(window, recent, step, pos)
+                diags.append(diag)
 
-            # warm-up
-            if P_window.shape[1] < self.chunk_size:
+            done = pos >= self.end or (
+                self.max_solves is not None and len(positions) >= self.max_solves)
+            next_pos = pos + step
+            if not self.include_end and next_pos >= self.end:
+                done = True
+            if done:
                 step_history.append(step)
-                pos += step
-                continue
+                break
+            if next_pos >= self.end - snap_tol:
+                next_pos = self.end
+            step_history.append(next_pos - pos)          # actual spacing
+            pos = next_pos
 
-            # analysis: gradients + recurrence
-            P_diffs = np.diff(P_window, axis=1)             # (n_dof, chunk-1)
-            recent_steps = np.asarray(
-                step_history[-(P_window.shape[1] - 1):], dtype=float
-            )
-
-            if self.normalize_gradients and recent_steps.size == P_diffs.shape[1]:
-                grad_norms = np.linalg.norm(P_diffs, axis=0) / recent_steps
-                P_for_R = np.abs(P_diffs) / recent_steps[None, :]
-            else:
-                grad_norms = np.linalg.norm(P_diffs, axis=0)
-                P_for_R = np.abs(P_diffs)
-
-            R, eps, rr = recurrence_matrix_from_columns(
-                P_for_R, percentile=self.epsilon_percentile
-            )
-            keep_mask = mess_local(R) if R.size > 0 else np.zeros(0, dtype=bool)
-
-            step, diag = self._step_update(step, keep_mask, grad_norms)
-            diag.update({"rr": rr, "epsilon": eps, "pos": pos})
-            diags.append(diag)
-
-            step_history.append(step)
-            pos += step
-
-        snaps = (np.column_stack(snaps_list) if snaps_list
-                 else np.empty((0, 0)))
+        snaps = np.column_stack(snaps_list)
         return SamplingResult(
             variant=variant_name,
             positions=positions,
@@ -350,10 +379,16 @@ def build_pod_basis(snapshots, rank=None, energy_threshold=1 - 1e-6):
     """POD basis via SVD. Returns ``(V, sigma)``.
 
     If ``rank is None`` the basis is truncated automatically at
-    ``energy_threshold`` of the cumulative singular-value energy.
+    ``energy_threshold`` of the cumulative singular-value energy. An explicit
+    ``rank`` is capped at the number of available singular values.
     """
-    U, sigma, _ = np.linalg.svd(snapshots, full_matrices=False)
+    U, sigma, _ = np.linalg.svd(np.asarray(snapshots), full_matrices=False)
+    total = np.sum(sigma ** 2)
     if rank is None:
-        energy = np.cumsum(sigma ** 2) / np.sum(sigma ** 2)
-        rank = max(int(np.searchsorted(energy, energy_threshold)) + 1, 1)
+        if total == 0:
+            rank = 1
+        else:
+            energy = np.cumsum(sigma ** 2) / total
+            rank = int(np.searchsorted(energy, energy_threshold)) + 1
+    rank = int(min(max(rank, 1), U.shape[1]))
     return U[:, :rank], sigma
