@@ -15,6 +15,8 @@ adaptive extension **AdaMESS** for memory-efficient reduced-basis generation.
   parameter axis the next expensive full-order solve should happen, so the
   dense uniform sweep never has to be computed.
 
+📖 **Documentation, tutorials with results and examples: [project wiki](https://github.com/sstroka/mess/wiki)**
+
 ---
 
 ## Installation
@@ -109,6 +111,9 @@ Complex-valued solutions (e.g. time-harmonic fields) are supported.
 | [`notebooks/tutorial_1.ipynb`](notebooks/tutorial_1.ipynb) | MESS for image compression (state analysis) |
 | [`notebooks/tutorial_2.ipynb`](notebooks/tutorial_2.ipynb) | MESS with energy analysis |
 | [`notebooks/tutorial_3_adamess.ipynb`](notebooks/tutorial_3_adamess.ipynb) | AdaMESS end-to-end: adaptive sampling, POD basis, benchmark |
+
+Results and figures of all notebooks and examples are discussed in the
+[wiki](https://github.com/sstroka/mess/wiki).
 
 The examples write their figures to `examples/output/`:
 
