@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "mess"
-version = "0.1.0"
+dynamic = ["version"]
 description = "MESS & AdaMESS: Maximum Entropy Snapshot Sampling for memory-efficient reduced-basis generation"
 readme = "README.md"
 license = {text = "MIT"}
@@ -12,28 +12,53 @@ authors = [{name = "Steven Stroka", email = "stroka@uni-wuppertal.de"}]
 keywords = ["model order reduction", "reduced basis", "snapshot sampling", "POD", "scientific computing", "electromagnetics"]
 classifiers = [
     "Development Status :: 4 - Beta",
-    "Intended Audience :: Developers",
+    "Intended Audience :: Science/Research",
     "License :: OSI Approved :: MIT License",
     "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
     "Operating System :: OS Independent",
     "Topic :: Scientific/Engineering",
+    "Topic :: Scientific/Engineering :: Mathematics",
 ]
-
-# Specify the required Python version
 requires-python = ">=3.11"
-
-# Core dependencies
 dependencies = [
-    "matplotlib",
-    "numpy",
-    "scipy",
-    "h5py"
+    "numpy>=1.24",
+    "scipy>=1.10",
 ]
+
+[project.optional-dependencies]
+io = ["h5py"]                                   # SamplingResult.save / load
+examples = ["matplotlib", "pillow", "jupyter"]  # examples/ and notebooks/
+dev = ["mess[io,examples]", "pytest>=7", "pytest-cov", "ruff"]
+
+[project.urls]
+Paper = "https://arxiv.org/abs/2005.01280"
+Zenodo = "https://doi.org/10.5281/zenodo.17101989"
+
+[tool.hatch.version]
+path = "src/mess/__init__.py"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/mess"]
 
-# Configure the source layout by specifying the package directory
-[tool.hatch.metadata]
-root = "src/mess"
+[tool.hatch.build.targets.sdist]
+exclude = ["notebooks/data"]
+
+# ---------------------------------------------------------------- tooling
+[tool.pytest.ini_options]
+testpaths = ["tests", "src/mess"]
+addopts = "--doctest-modules"
+
+[tool.ruff]
+extend-exclude = ["notebooks"]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B", "NPY"]
+
+[tool.ruff.lint.per-file-ignores]
+"examples/*" = ["E402"]
