@@ -1,7 +1,7 @@
 # MESS & AdaMESS — Maximum Entropy Snapshot Sampling
 
 [![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.17101989.svg)](https://doi.org/10.5281/zenodo.17101989)
-[![tests](https://github.com/<your-org>/mess/actions/workflows/tests.yml/badge.svg)](https://github.com/<your-org>/mess/actions/workflows/tests.yml)
+[![tests](https://github.com/sstroka/mess/actions/workflows/tests.yml/badge.svg)](https://github.com/sstroka/mess/actions/workflows/tests.yml)
 ![python](https://img.shields.io/badge/python-3.11%20%7C%203.12%20%7C%203.13%20%7C%203.14-blue)
 [![license](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 
@@ -20,7 +20,7 @@ adaptive extension **AdaMESS** for memory-efficient reduced-basis generation.
 ## Installation
 
 ```bash
-git clone https://github.com/<your-org>/mess.git
+git clone https://github.com/sstroka/mess.git
 cd mess
 pip install -e .            # core: numpy + scipy
 pip install -e ".[io]"      # + h5py for SamplingResult.save/load
